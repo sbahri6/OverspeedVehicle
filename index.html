@@ -2,59 +2,47 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Vehicle Monitor</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  <!-- Leaflet CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <style> #map { height: 100vh; } </style>
+  <title>Live Vehicle Map</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>#map { height: 100vh; }</style>
 </head>
 <body>
 <div id="map"></div>
-
-<!-- Leaflet JS -->
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<!-- MQTT.js (WebSocket) -->
-<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script>
-const MQTT_BROKER_WS = "ws://broker.hivemq.com:8000/mqtt"; // public ws for testing
-const TOPIC = "vehicle/tracker/vehicle1";
-
-const client = mqtt.connect(MQTT_BROKER_WS);
-
-const map = L.map('map').setView([0,0], 2);
+const FIREBASE_URL = "https://overspeed-23311-default-rtdb.asia-southeast1.firebasedatabase.app/vehicle.json"; // update 
+let map = L.map('map').setView([0,0], 2);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© OpenStreetMap contributors'
+  attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
-
 let marker = null;
-let polyline = L.polyline([], {weight: 3}).addTo(map);
 
-client.on('connect', function() {
-  console.log('MQTT connected');
-  client.subscribe(TOPIC, function(err) {
-    if (!err) console.log('subscribed to', TOPIC);
-  });
-});
-
-client.on('message', function(topic, message) {
+async function fetchLocation(){
   try {
-    const msg = JSON.parse(message.toString());
-    const lat = msg.lat;
-    const lng = msg.lng;
-    const speed = msg.speed;
+    const r = await fetch(FIREBASE_URL);
+    const data = await r.json();
+    if (!data || !data.lat || !data.lon) return;
+    const lat = data.lat;
+    const lon = data.lon;
+    const speed = data.speed_kmh;
+    const time = data.time;
     if (!marker) {
-      marker = L.marker([lat, lng]).addTo(map).bindPopup('Speed: ' + speed + ' km/h');
-      map.setView([lat,lng], 16);
+      marker = L.marker([lat, lon]).addTo(map);
+      marker.bindPopup(`Speed: ${speed} km/h<br/>${time}`);
+      map.setView([lat, lon], 16);
     } else {
-      marker.setLatLng([lat, lng]).setPopupContent('Speed: ' + speed + ' km/h');
+      marker.setLatLng([lat, lon]);
+      marker.setPopupContent(`Speed: ${speed} km/h<br/>${time}`);
     }
-    polyline.addLatLng([lat, lng]);
-  } catch(e) {
-    console.error('Invalid message', e);
+  } catch (e) {
+    console.error("Fetch error", e);
   }
-});
+}
+
+// refresh every 4 seconds
+setInterval(fetchLocation, 4000);
+fetchLocation();
 </script>
 </body>
 </html>
