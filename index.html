@@ -2,47 +2,211 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Live Vehicle Map</title>
+  <title>Live Vehicle Map & Speed</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <style>#map { height: 100vh; }</style>
+  <style>
+    html,body { height:100%; margin:0; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto, "Helvetica Neue", Arial; }
+    #topbar { display:flex; align-items:center; gap:16px; padding:10px 14px; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,0.08); z-index:1000; }
+    #speedbox { display:flex; flex-direction:column; align-items:flex-start; gap:4px; }
+    #speed { font-size:48px; font-weight:700; line-height:1; }
+    #units { font-size:14px; color:#444; }
+    #status { font-size:13px; color:#666; }
+    #map { height: calc(100% - 74px); } /* leave room for topbar */
+    .badge { padding:6px 10px; border-radius:6px; font-weight:600; }
+    .green { background:#e6ffed; color:#05672f; }
+    .orange { background:#fff6e6; color:#8a4d00; }
+    .red { background:#ffecec; color:#8b0000; }
+    #meta { margin-left: auto; text-align:right; font-size:13px; color:#333; }
+    #infoSmall { font-size:12px; color:#666; margin-top:4px; }
+    @media (max-width:600px) {
+      #speed { font-size:36px; }
+      #map { height: calc(100% - 110px); }
+      #topbar { flex-wrap:wrap; gap:8px; }
+      #meta { width:100%; text-align:left; margin-left:0; }
+    }
+  </style>
 </head>
 <body>
-<div id="map"></div>
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-<script>
-const FIREBASE_URL = "https://overspeed-23311-default-rtdb.asia-southeast1.firebasedatabase.app/vehicle.json"; // update 
-let map = L.map('map').setView([0,0], 2);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap contributors'
-}).addTo(map);
-let marker = null;
+  <div id="topbar">
+    <div id="speedbox">
+      <div id="speed" class="green">--</div>
+      <div id="units">km/h</div>
+      <div id="infoSmall">Last update: <span id="lastUpdate">—</span></div>
+    </div>
 
-async function fetchLocation(){
-  try {
-    const r = await fetch(FIREBASE_URL);
-    const data = await r.json();
-    if (!data || !data.lat || !data.lon) return;
-    const lat = data.lat;
-    const lon = data.lon;
-    const speed = data.speed_kmh;
-    const time = data.time;
-    if (!marker) {
-      marker = L.marker([lat, lon]).addTo(map);
-      marker.bindPopup(`Speed: ${speed} km/h<br/>${time}`);
-      map.setView([lat, lon], 16);
-    } else {
-      marker.setLatLng([lat, lon]);
-      marker.setPopupContent(`Speed: ${speed} km/h<br/>${time}`);
+    <div id="status" style="margin-left:6px;">
+      Status: <span id="connStatus">Waiting…</span><br>
+      GPS time: <span id="gpsTime">—</span>
+    </div>
+
+    <div id="meta">
+      <div>Threshold: <strong id="thresholdLabel">80</strong> km/h</div>
+      <div id="overspeedNote" style="margin-top:6px;color:#b00;font-weight:600;display:none;">OVERSPEEDING</div>
+    </div>
+  </div>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+  /********************
+   * CONFIG - EDIT THIS
+   ********************/
+  // Use your Firebase Realtime DB REST endpoint here (must end with .json)
+  const FIREBASE_URL = "https://overspeed-23311-default-rtdb.asia-southeast1.firebasedatabase.app/vehicle.json";
+
+  // Poll interval (ms)
+  const POLL_INTERVAL = 2000;
+
+  // Overspeed threshold (km/h)
+  const OVERSPEED_KMH = 80;
+
+  // How many points to keep in the track polyline
+  const TRACK_SIZE = 200;
+
+  /********************
+   * UI & Map setup
+   ********************/
+  const speedEl = document.getElementById('speed');
+  const lastUpdateEl = document.getElementById('lastUpdate');
+  const connStatusEl = document.getElementById('connStatus');
+  const gpsTimeEl = document.getElementById('gpsTime');
+  const thresholdLabel = document.getElementById('thresholdLabel');
+  const overspeedNote = document.getElementById('overspeedNote');
+
+  thresholdLabel.textContent = OVERSPEED_KMH;
+
+  const map = L.map('map', { zoomControl: true }).setView([0,0], 2);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  let marker = null;
+  let trackCoords = [];
+  let polyline = L.polyline(trackCoords, { weight: 4 }).addTo(map);
+
+  /********************
+   * Helpers
+   ********************/
+  function formatTimeISO(iso) {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      if (isNaN(d)) return iso;
+      return d.toLocaleString();
+    } catch (e) {
+      return iso;
     }
-  } catch (e) {
-    console.error("Fetch error", e);
   }
-}
 
-// refresh every 4 seconds
-setInterval(fetchLocation, 4000);
-fetchLocation();
-</script>
+  function setSpeedUI(speed) {
+    if (speed === null || speed === undefined || isNaN(speed)) {
+      speedEl.textContent = '--';
+      speedEl.className = '';
+      return;
+    }
+    // round to 1 decimal for display
+    const s = Math.round(speed * 10) / 10;
+    speedEl.textContent = s;
+
+    // color logic
+    if (s <= OVERSPEED_KMH * 0.95) {
+      speedEl.className = 'green';
+      overspeedNote.style.display = 'none';
+    } else if (s > OVERSPEED_KMH * 0.95 && s <= OVERSPEED_KMH) {
+      speedEl.className = 'orange';
+      overspeedNote.style.display = 'none';
+    } else {
+      speedEl.className = 'red';
+      overspeedNote.style.display = 'block';
+    }
+  }
+
+  function updateMarker(lat, lon, speed, timeStr) {
+    const latlng = [lat, lon];
+    if (!marker) {
+      marker = L.marker(latlng).addTo(map);
+      marker.bindPopup(`Speed: ${speed} km/h<br/>${formatTimeISO(timeStr)}`);
+      map.setView(latlng, 16);
+    } else {
+      marker.setLatLng(latlng);
+      marker.setPopupContent(`Speed: ${speed} km/h<br/>${formatTimeISO(timeStr)}`);
+    }
+
+    // add to track and trim
+    trackCoords.push(latlng);
+    if (trackCoords.length > TRACK_SIZE) trackCoords.shift();
+    polyline.setLatLngs(trackCoords);
+  }
+
+  /********************
+   * Poll Firebase
+   ********************/
+  let lastFetched = null;
+
+  async function fetchLocationOnce() {
+    try {
+      const resp = await fetch(FIREBASE_URL, { cache: "no-store" });
+      if (!resp.ok) {
+        connStatusEl.textContent = `HTTP ${resp.status}`;
+        return;
+      }
+      const data = await resp.json();
+      if (!data) {
+        connStatusEl.textContent = 'No data';
+        return;
+      }
+
+      // expect lat, lon, speed_kmh, time
+      const lat = Number(data.lat);
+      const lon = Number(data.lon);
+      const speed = (data.speed_kmh !== undefined) ? Number(data.speed_kmh) : (data.speed ? Number(data.speed) : NaN);
+      const timeStr = data.time || data.timestamp || null;
+
+      lastFetched = new Date();
+      lastUpdateEl.textContent = lastFetched.toLocaleTimeString();
+      connStatusEl.textContent = 'OK';
+      gpsTimeEl.textContent = timeStr ? formatTimeISO(timeStr) : '—';
+
+      // Update UI & map if lat/lon valid
+      if (isFinite(lat) && isFinite(lon)) {
+        updateMarker(lat, lon, speed, timeStr);
+      }
+      setSpeedUI(isFinite(speed) ? speed : null);
+
+    } catch (err) {
+      console.error("Fetch error", err);
+      connStatusEl.textContent = 'Fetch error';
+    }
+  }
+
+  // Start polling
+  fetchLocationOnce(); // first immediate fetch
+  setInterval(fetchLocationOnce, POLL_INTERVAL);
+
+  /********************
+   * Optional: clickable map link (for Telegram or copy)
+   ********************/
+  // Add a small control with a "Copy Maps Link" button
+  const mapsControl = L.control({position: 'topleft'});
+  mapsControl.onAdd = function(map) {
+    const div = L.DomUtil.create('div', 'leaflet-bar');
+    div.style.background = '#fff';
+    div.style.padding = '6px';
+    div.style.cursor = 'pointer';
+    div.title = 'Copy Google Maps link for current location';
+    div.innerHTML = '📍 Copy link';
+    div.onclick = function() {
+      if (!marker) { alert('No location yet'); return; }
+      const pos = marker.getLatLng();
+      const url = `https://www.google.com/maps/search/?api=1&query=${pos.lat.toFixed(6)},${pos.lng.toFixed(6)}`;
+      navigator.clipboard?.writeText(url).then(() => alert('Maps link copied to clipboard'), () => alert(url));
+    };
+    return div;
+  };
+  mapsControl.addTo(map);
+
+  </script>
 </body>
 </html>
