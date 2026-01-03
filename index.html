@@ -1,59 +1,224 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Live Vehicle Map & Speed</title>
+  <title>Live Vehicle Map & Speed — Premium UI</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <!-- Google Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <!-- Font Awesome for small icons (optional) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-..." crossorigin="anonymous" referrerpolicy="no-referrer" />
   <style>
-    html,body { height:100%; margin:0; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto, "Helvetica Neue", Arial; }
-    #topbar { display:flex; align-items:center; gap:16px; padding:10px 14px; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,0.08); z-index:1000; }
-    #speedbox { display:flex; flex-direction:column; align-items:flex-start; gap:4px; }
-    #speed { font-size:48px; font-weight:700; line-height:1; }
-    #units { font-size:14px; color:#444; }
-    #status { font-size:13px; color:#666; }
-    #map { height: calc(100% - 74px); } /* leave room for topbar */
-    .badge { padding:6px 10px; border-radius:6px; font-weight:600; }
-    .green { background:#e6ffed; color:#05672f; }
-    .orange { background:#fff6e6; color:#8a4d00; }
-    .red { background:#ffecec; color:#8b0000; }
-    #meta { margin-left: auto; text-align:right; font-size:13px; color:#333; }
-    #infoSmall { font-size:12px; color:#666; margin-top:4px; }
-    @media (max-width:600px) {
-      #speed { font-size:36px; }
-      #map { height: calc(100% - 110px); }
-      #topbar { flex-wrap:wrap; gap:8px; }
-      #meta { width:100%; text-align:left; margin-left:0; }
+    :root{
+      --bg: #f6f8fb;
+      --card: rgba(255,255,255,0.75);
+      --glass-border: rgba(255,255,255,0.6);
+      --muted: #6b7280;
+      --accent: #2563eb;
+      --radius: 12px;
+      --shadow: 0 6px 18px rgba(19,24,33,0.08);
     }
+
+    html,body{height:100%; margin:0; font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; background:linear-gradient(180deg,#f7fbff 0%, #f6f8fb 100%); color:#0f172a}
+    /* Topbar */
+    #topbar{
+      position:relative;
+      display:flex;
+      gap:16px;
+      align-items:center;
+      padding:14px;
+      padding-left:18px;
+      padding-right:18px;
+      backdrop-filter: blur(8px) saturate(120%);
+      background: linear-gradient(180deg, rgba(255,255,255,0.85), rgba(255,255,255,0.7));
+      border-bottom: 1px solid rgba(15,23,42,0.04);
+      box-shadow: var(--shadow);
+      z-index:1000;
+    }
+
+    /* Layout: speed card + meta + status */
+    .leftBlock{ display:flex; gap:12px; align-items:center; min-width:0;}
+    .speedCard{
+      display:flex;
+      align-items:center;
+      gap:12px;
+      padding:10px 14px;
+      border-radius: 14px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(245,247,250,0.9));
+      box-shadow: 0 6px 20px rgba(37,99,235,0.06);
+      border: 1px solid rgba(37,99,235,0.06);
+      min-width: 160px;
+    }
+
+    .speedValue{
+      display:flex;
+      flex-direction:column;
+      align-items:flex-start;
+      gap:4px;
+      min-width:84px;
+    }
+
+    .speedDigits{
+      font-size:40px;
+      font-weight:800;
+      line-height:1;
+      letter-spacing:-0.01em;
+      color:#0f172a;
+    }
+
+    .units{ font-size:13px; color:var(--muted); font-weight:600; }
+
+    .smallMeta{ font-size:12px; color:var(--muted); }
+
+    /* Circular gauge (SVG) container */
+    .gauge{
+      width:68px;
+      height:68px;
+      display:inline-block;
+      position:relative;
+    }
+    .gauge .label{
+      position:absolute;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:700;
+      font-size:12px;
+      color:#0f172a;
+      pointer-events:none;
+    }
+
+    /* status column on smaller screens goes below */
+    .status{
+      margin-left:auto;
+      text-align:right;
+      min-width:200px;
+    }
+    .statusRow{ font-size:13px; color:var(--muted); display:flex; flex-direction:column; gap:4px; align-items:flex-end; }
+    .statusRow strong{ color:#0f172a; font-weight:700; }
+
+    .overspeedNote{
+      margin-top:6px;
+      font-weight:800;
+      color:#b91c1c;
+      display:none;
+      font-size:13px;
+    }
+
+    /* Map area fills remaining space */
+    #map{ height: calc(100% - 86px); border-top: 1px solid rgba(15,23,42,0.03); }
+
+    /* Track label */
+    .trackBadge{
+      display:inline-block;
+      font-size:12px;
+      padding:6px 8px;
+      border-radius:999px;
+      background: rgba(15,23,42,0.04);
+      color:var(--muted);
+      font-weight:600;
+    }
+
+    /* Leaflet marker custom styles (for DivIcon) */
+    .veh-marker {
+      width:44px;
+      height:44px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      border-radius:22px;
+      background: linear-gradient(180deg,#fff 0%, #f1f5f9 100%);
+      box-shadow: 0 6px 18px rgba(2,6,23,0.12);
+      border: 2px solid rgba(255,255,255,0.9);
+    }
+    .veh-arrow{
+      width:18px;
+      height:18px;
+      transform-origin:center;
+      transition: transform 700ms ease;
+      display:block;
+    }
+
+    /* Responsive */
+    @media (max-width:720px){
+      #topbar{ padding:12px; gap:12px; flex-wrap:wrap; align-items:flex-start; }
+      .status{ width:100%; text-align:left; margin-left:0; }
+      .speedDigits{ font-size:34px; }
+      #map{ height: calc(100% - 148px); }
+      .speedCard{ min-width: unset; width:100%; justify-content:space-between; }
+    }
+
+    /* speed color states for ring stroke */
+    .gauge.green svg .ring { stroke: #059669; }
+    .gauge.orange svg .ring { stroke: #d97706; }
+    .gauge.red svg .ring { stroke: #b91c1c; }
+
+    /* small helper */
+    .muted{ color:var(--muted); font-weight:600; font-size:13px; }
+    .control-copy{ background:#fff; padding:8px 10px; border-radius:8px; box-shadow: 0 6px 14px rgba(2,6,23,0.06); cursor:pointer; border:1px solid rgba(2,6,23,0.04); font-weight:700; }
   </style>
 </head>
 <body>
   <div id="topbar">
-    <div id="speedbox">
-      <div id="speed" class="green">--</div>
-      <div id="units">km/h</div>
-      <div id="infoSmall">Last update: <span id="lastUpdate">—</span></div>
+    <div class="leftBlock">
+      <div class="speedCard" aria-live="polite">
+        <div class="gauge" id="gaugeWrap" title="Speed vs threshold">
+          <!-- SVG circular gauge: we will update stroke-dasharray in JS -->
+          <svg viewBox="0 0 36 36" width="68" height="68" role="img" aria-hidden="true">
+            <defs>
+              <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#60a5fa"/>
+                <stop offset="100%" stop-color="#2563eb"/>
+              </linearGradient>
+            </defs>
+            <path class="ring" fill="none" stroke="#e6eefc" stroke-width="4" d="M18 2.1
+              a 15.9 15.9 0 0 1 0 31.8
+              a 15.9 15.9 0 0 1 0 -31.8" />
+            <path class="progress" fill="none" stroke="url(#g1)" stroke-width="4" stroke-linecap="round"
+              stroke-dasharray="0 100" d="M18 2.1
+              a 15.9 15.9 0 0 1 0 31.8
+              a 15.9 15.9 0 0 1 0 -31.8" />
+          </svg>
+          <div class="label" id="gaugeLabel">--</div>
+        </div>
+
+        <div class="speedValue">
+          <div class="speedDigits" id="speed">--</div>
+          <div class="units">km/h</div>
+          <div class="smallMeta">Last: <span id="lastUpdate">—</span></div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:6px; margin-left:8px;">
+        <div class="trackBadge">Track</div>
+        <div style="font-size:12px;color:var(--muted);font-weight:600;">Points: <span id="trackCount">0</span></div>
+      </div>
     </div>
 
-    <div id="status" style="margin-left:6px;">
-      Status: <span id="connStatus">Waiting…</span><br>
-      GPS time: <span id="gpsTime">—</span>
-    </div>
-
-    <div id="meta">
-      <div>Threshold: <strong id="thresholdLabel">80</strong> km/h</div>
-      <div id="overspeedNote" style="margin-top:6px;color:#b00;font-weight:600;display:none;">OVERSPEEDING</div>
+    <div class="status" role="status" aria-atomic="true">
+      <div class="statusRow">
+        <div>Connection: <strong id="connStatus">Waiting…</strong></div>
+        <div class="muted">GPS time: <span id="gpsTime">—</span></div>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:8px;">
+          <div>Threshold: <strong id="thresholdLabel">80</strong> km/h</div>
+          <div class="overspeedNote" id="overspeedNote">OVERSPEEDING</div>
+        </div>
+      </div>
     </div>
   </div>
 
   <div id="map"></div>
 
+  <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script>
   /********************
-   * CONFIG - EDIT THIS
+   * CONFIG
    ********************/
-  // Use your Firebase Realtime DB REST endpoint here (must end with .json)
+  // Firebase Realtime DB REST endpoint (must end with .json)
   const FIREBASE_URL = "https://overspeed-23311-default-rtdb.asia-southeast1.firebasedatabase.app/vehicle.json";
 
   // Poll interval (ms)
@@ -66,7 +231,7 @@
   const TRACK_SIZE = 200;
 
   /********************
-   * UI & Map setup
+   * UI refs
    ********************/
   const speedEl = document.getElementById('speed');
   const lastUpdateEl = document.getElementById('lastUpdate');
@@ -74,20 +239,27 @@
   const gpsTimeEl = document.getElementById('gpsTime');
   const thresholdLabel = document.getElementById('thresholdLabel');
   const overspeedNote = document.getElementById('overspeedNote');
+  const gaugeWrap = document.getElementById('gaugeWrap');
+  const gaugeLabel = document.getElementById('gaugeLabel');
+  const trackCountEl = document.getElementById('trackCount');
 
   thresholdLabel.textContent = OVERSPEED_KMH;
 
-  const map = L.map('map', { zoomControl: true }).setView([0,0], 2);
+  /********************
+   * Map setup
+   ********************/
+  const map = L.map('map', { zoomControl: true }).setView([3.1390, 101.6869], 6); // default to KL area
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors'
   }).addTo(map);
 
   let marker = null;
+  let markerHeading = 0;
   let trackCoords = [];
-  let polyline = L.polyline(trackCoords, { weight: 4 }).addTo(map);
+  let polyline = L.polyline(trackCoords, { color: '#2563eb', weight: 4, opacity: .9, lineJoin: 'round' }).addTo(map);
 
   /********************
-   * Helpers
+   * Helper functions
    ********************/
   function formatTimeISO(iso) {
     if (!iso) return '—';
@@ -103,41 +275,86 @@
   function setSpeedUI(speed) {
     if (speed === null || speed === undefined || isNaN(speed)) {
       speedEl.textContent = '--';
-      speedEl.className = '';
+      gaugeLabel.textContent = '--';
+      gaugeWrap.classList.remove('green','orange','red');
+      updateGauge(0);
       return;
     }
-    // round to 1 decimal for display
+
     const s = Math.round(speed * 10) / 10;
     speedEl.textContent = s;
+    gaugeLabel.textContent = Math.round((s / OVERSPEED_KMH) * 100) + '%';
 
     // color logic
     if (s <= OVERSPEED_KMH * 0.95) {
-      speedEl.className = 'green';
+      gaugeWrap.classList.add('green'); gaugeWrap.classList.remove('orange','red');
       overspeedNote.style.display = 'none';
     } else if (s > OVERSPEED_KMH * 0.95 && s <= OVERSPEED_KMH) {
-      speedEl.className = 'orange';
+      gaugeWrap.classList.add('orange'); gaugeWrap.classList.remove('green','red');
       overspeedNote.style.display = 'none';
     } else {
-      speedEl.className = 'red';
+      gaugeWrap.classList.add('red'); gaugeWrap.classList.remove('green','orange');
       overspeedNote.style.display = 'block';
     }
+
+    // clamp percent for visual gauge to 150% so ring doesn't overflow
+    const pct = Math.min(150, (s / OVERSPEED_KMH) * 100);
+    updateGauge(pct);
   }
 
-  function updateMarker(lat, lon, speed, timeStr) {
+  // update SVG progress ring by adjusting stroke-dasharray
+  function updateGauge(percent) {
+    // percent 0..100 (we support up to 150 visually)
+    const path = gaugeWrap.querySelector('.progress');
+    const circumference = 100; // we will interpret as 100-unit circle
+    const filled = (percent / 100) * circumference;
+    // set dasharray: filled gap
+    path.setAttribute('stroke-dasharray', `${filled} ${circumference - filled}`);
+  }
+
+  // create a DivIcon marker with an arrow (rotate by heading if available)
+  function createVehicleIcon(heading = 0) {
+    const size = 44;
+    const svg = `
+      <div class="veh-marker" style="width:${size}px;height:${size}px;">
+        <svg class="veh-arrow" viewBox="0 0 24 24" style="transform: rotate(${heading}deg)">
+          <path d="M12 2 L19 21 L12 17 L5 21 Z" fill="#2563eb" stroke="#0f172a" stroke-opacity="0.06" stroke-width="0.5"/>
+        </svg>
+      </div>
+    `;
+    return L.divIcon({
+      html: svg,
+      className: '',
+      iconSize: [size, size],
+      iconAnchor: [size/2, size/2]
+    });
+  }
+
+  function updateMarker(lat, lon, speed, timeStr, heading) {
     const latlng = [lat, lon];
     if (!marker) {
-      marker = L.marker(latlng).addTo(map);
-      marker.bindPopup(`Speed: ${speed} km/h<br/>${formatTimeISO(timeStr)}`);
-      map.setView(latlng, 16);
+      markerHeading = (heading !== undefined && !isNaN(heading)) ? heading : 0;
+      marker = L.marker(latlng, { icon: createVehicleIcon(markerHeading) }).addTo(map);
+      marker.bindPopup(`Speed: ${speed ?? '--'} km/h<br>${formatTimeISO(timeStr)}`);
+      map.setView(latlng, 16, { animate: true });
     } else {
+      // rotate arrow if heading present
+      if (heading !== undefined && !isNaN(heading)) {
+        markerHeading = heading;
+        // rebuild icon with rotation (simple approach)
+        marker.setIcon(createVehicleIcon(markerHeading));
+      }
       marker.setLatLng(latlng);
-      marker.setPopupContent(`Speed: ${speed} km/h<br/>${formatTimeISO(timeStr)}`);
+      marker.setPopupContent(`Speed: ${speed ?? '--'} km/h<br>${formatTimeISO(timeStr)}`);
+      // softly pan map to marker on mobile / when zoomed in
+      if (map.getZoom() >= 12) map.panTo(latlng, { animate: true, duration: 0.7 });
     }
 
-    // add to track and trim
+    // update track
     trackCoords.push(latlng);
     if (trackCoords.length > TRACK_SIZE) trackCoords.shift();
     polyline.setLatLngs(trackCoords);
+    trackCountEl.textContent = trackCoords.length;
   }
 
   /********************
@@ -158,11 +375,12 @@
         return;
       }
 
-      // expect lat, lon, speed_kmh, time
+      // expect lat, lon, speed_kmh, time, heading(optional)
       const lat = Number(data.lat);
       const lon = Number(data.lon);
       const speed = (data.speed_kmh !== undefined) ? Number(data.speed_kmh) : (data.speed ? Number(data.speed) : NaN);
       const timeStr = data.time || data.timestamp || null;
+      const heading = (data.heading !== undefined) ? Number(data.heading) : (data.bearing !== undefined ? Number(data.bearing) : undefined);
 
       lastFetched = new Date();
       lastUpdateEl.textContent = lastFetched.toLocaleTimeString();
@@ -171,7 +389,7 @@
 
       // Update UI & map if lat/lon valid
       if (isFinite(lat) && isFinite(lon)) {
-        updateMarker(lat, lon, speed, timeStr);
+        updateMarker(lat, lon, isFinite(speed) ? speed : null, timeStr, heading);
       }
       setSpeedUI(isFinite(speed) ? speed : null);
 
@@ -182,26 +400,35 @@
   }
 
   // Start polling
-  fetchLocationOnce(); // first immediate fetch
+  fetchLocationOnce(); // immediate
   setInterval(fetchLocationOnce, POLL_INTERVAL);
 
   /********************
-   * Optional: clickable map link (for Telegram or copy)
+   * Copy Maps Link control
    ********************/
-  // Add a small control with a "Copy Maps Link" button
   const mapsControl = L.control({position: 'topleft'});
   mapsControl.onAdd = function(map) {
-    const div = L.DomUtil.create('div', 'leaflet-bar');
-    div.style.background = '#fff';
-    div.style.padding = '6px';
-    div.style.cursor = 'pointer';
+    const div = L.DomUtil.create('div', 'leaflet-bar control-copy');
     div.title = 'Copy Google Maps link for current location';
     div.innerHTML = '📍 Copy link';
     div.onclick = function() {
       if (!marker) { alert('No location yet'); return; }
       const pos = marker.getLatLng();
       const url = `https://www.google.com/maps/search/?api=1&query=${pos.lat.toFixed(6)},${pos.lng.toFixed(6)}`;
-      navigator.clipboard?.writeText(url).then(() => alert('Maps link copied to clipboard'), () => alert(url));
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(() => {
+          // friendly toast replacement
+          const tip = document.createElement('div');
+          tip.textContent = 'Maps link copied to clipboard';
+          tip.style.position='fixed'; tip.style.right='18px'; tip.style.bottom='18px';
+          tip.style.padding='10px 14px'; tip.style.background='#0f172a'; tip.style.color='#fff';
+          tip.style.borderRadius='10px'; tip.style.boxShadow='0 8px 24px rgba(2,6,23,0.2)'; tip.style.zIndex=9999;
+          document.body.appendChild(tip);
+          setTimeout(()=>tip.remove(),1800);
+        }, ()=> alert(url));
+      } else {
+        alert(url);
+      }
     };
     return div;
   };
