@@ -203,7 +203,7 @@
         <div>Connection: <strong id="connStatus">Waiting…</strong></div>
         <div class="muted">GPS time: <span id="gpsTime">—</span></div>
         <div style="display:flex;gap:10px;align-items:center;margin-top:8px;">
-          <div>Threshold: <strong id="thresholdLabel">80</strong> km/h</div>
+          <div>Threshold: <strong id="thresholdLabel">60</strong> km/h</div>
           <div class="overspeedNote" id="overspeedNote">OVERSPEEDING</div>
         </div>
       </div>
@@ -225,7 +225,7 @@
   const POLL_INTERVAL = 2000;
 
   // Overspeed threshold (km/h)
-  const OVERSPEED_KMH = 80;
+  const OVERSPEED_KMH = 60;
 
   // How many points to keep in the track polyline
   const TRACK_SIZE = 200;
@@ -437,3 +437,4 @@
   </script>
 </body>
 </html>
+
